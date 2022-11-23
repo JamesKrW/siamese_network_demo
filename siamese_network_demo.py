@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 from torchvision import datasets
 from torchvision import transforms as T
 from torch.optim.lr_scheduler import StepLR
-from load_data import APP_MATCHER_2
+from load_data import APP_MATCHER
 import sys
 
 class SiameseNetwork(nn.Module):
@@ -27,8 +27,7 @@ class SiameseNetwork(nn.Module):
     """
     def __init__(self,input_size,feature_size):
         super(SiameseNetwork, self).__init__()
-        # get resnet model
-        #self.resnet = torchvision.models.resnet18(pretrained=False)
+       
         self.feature_extractor=nn.Sequential(
             nn.Linear(input_size, 256),
             nn.ReLU(inplace=True),
@@ -39,16 +38,10 @@ class SiameseNetwork(nn.Module):
             nn.Linear(64, feature_size)
 
         )
-        # over-write the first conv layer to be able to read MNIST images
-        # as resnet18 reads (3,x,x) where 3 is RGB channels
-        # whereas MNIST has (1,x,x) where 1 is a gray-scale channel
-        #self.resnet.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        
         self.fc_in_features = feature_size
         
-        # remove the last layer of resnet18 (linear layer which is before avgpool layer)
-        #self.resnet = torch.nn.Sequential(*(list(self.resnet.children())[:-1]))
-
-        # add linear layers to compare between the features of the two images
+       
         self.fc = nn.Sequential(
             nn.Linear(self.fc_in_features * 2, 256),
             nn.ReLU(inplace=True),
@@ -94,19 +87,19 @@ class SiameseNetwork(nn.Module):
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
 
-    # we aren't using `TripletLoss` as the MNIST dataset is simple, so `BCELoss` can do the trick.
+   
     criterion = nn.BCELoss()
 
-    for batch_idx, (images_1, images_2, targets) in enumerate(train_loader):
-        images_1, images_2, targets = images_1.to(device), images_2.to(device), targets.to(device)
+    for batch_idx, (feature1, feature2, targets) in enumerate(train_loader):
+        feature1, feature2, targets = feature1.to(device), feature2.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = model(images_1, images_2).squeeze()
+        outputs = model(feature1, feature2).squeeze()
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(images_1), len(train_loader.dataset),
+                epoch, batch_idx * len(feature1), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
             if args.dry_run:
                 break
@@ -117,22 +110,20 @@ def test(model, device, test_loader):
     test_loss = 0
     correct = 0
 
-    # we aren't using `TripletLoss` as the MNIST dataset is simple, so `BCELoss` can do the trick.
+    
     criterion = nn.BCELoss()
 
     with torch.no_grad():
-        for (images_1, images_2, targets) in test_loader:
-            images_1, images_2, targets = images_1.to(device), images_2.to(device), targets.to(device)
-            outputs = model(images_1, images_2).squeeze()
+        for (feature1, feature2, targets) in test_loader:
+            feature1, feature2, targets = feature1.to(device), feature2.to(device), targets.to(device)
+            outputs = model(feature1, feature2).squeeze()
             test_loss += criterion(outputs, targets).sum().item()  # sum up batch loss
             pred = torch.where(outputs > 0.5, 1, 0)  # get the index of the max log-probability
             correct += pred.eq(targets.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
 
-    # for the 1st epoch, the average loss is 0.0001 and the accuracy 97-98%
-    # using default settings. After completing the 10th epoch, the average
-    # loss is 0.0000 and the accuracy 99.5-100% using default settings.
+    
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
@@ -186,8 +177,8 @@ def main():
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
-    train_dataset = APP_MATCHER_2('data.csv', train=True)
-    test_dataset = APP_MATCHER_2('data.csv', train=False)
+    train_dataset = APP_MATCHER('data.csv', train=True)
+    test_dataset = APP_MATCHER('data.csv', train=False)
     train_loader = torch.utils.data.DataLoader(train_dataset,**train_kwargs)
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
 
